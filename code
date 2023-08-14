@@ -1,0 +1,154 @@
+import hashlib
+import time
+import random
+
+# Define the Block class
+class Block:
+    def __init__(self, index, previous_hash, timestamp, data, hash, proof):
+        self.index = index
+        self.previous_hash = previous_hash
+        self.timestamp = timestamp
+        self.data = data
+        self.hash = hash
+        self.proof = proof
+
+# Define the Blockchain class
+class INRCBlockchain:
+    def __init__(self, total_tokens):
+        self.chain = []
+        self.pending_transactions = []
+        self.total_tokens = total_tokens
+        self.create_genesis_block()
+
+    def create_genesis_block(self):
+        genesis_block = Block(0, "0", time.time(), [], self.hash_block("0", []), 0)
+        self.chain.append(genesis_block)
+
+    def add_block(self, data, proof):
+        previous_block = self.chain[-1]
+        index = len(self.chain)
+        timestamp = time.time()
+        hash = self.hash_block(previous_block.hash, data)
+        new_block = Block(index, previous_block.hash, timestamp, data, hash, proof)
+        self.chain.append(new_block)
+
+    def hash_block(self, previous_hash, data):
+        string = str(previous_hash) + str(data)
+        return hashlib.sha256(string.encode()).hexdigest()
+
+# Define the Proof of Stake (PoS) class
+class ProofOfStake:
+    def __init__(self, blockchain):
+        self.blockchain = blockchain
+        self.validators = {}  # Mapping of addresses to their stake
+
+    def add_validator(self, address, stake):
+        self.validators[address] = stake
+
+    def get_validators(self):
+        return self.validators
+
+    def select_validator(self):
+        total_stake = sum(self.validators.values())
+        target = random.uniform(0, total_stake)
+        cumulative_stake = 0
+        for address, stake in self.validators.items():
+            cumulative_stake += stake
+            if cumulative_stake >= target:
+                return address
+
+    def validate_block(self, block):
+        validator = self.select_validator()
+        return block.proof < self.validators[validator]
+
+# Define a Transaction class with digital signatures
+class Transaction:
+    def __init__(self, sender, recipient, amount):
+        self.sender = sender
+        self.recipient = recipient
+        self.amount = amount
+        self.timestamp = time.time()
+        self.signature = self.generate_signature()
+
+    def generate_signature(self):
+        data = str(self.sender) + str(self.recipient) + str(self.amount) + str(self.timestamp)
+        return hashlib.sha256(data.encode()).hexdigest()
+
+# Update Blockchain class to include transactions and tokens
+class INRCBlockchainWithTokens(INRCBlockchain):
+    def create_genesis_block(self):
+        genesis_block = Block(0, "0", time.time(), [], self.hash_block("0", []), 0)
+        self.chain.append(genesis_block)
+        self.token_balances = { "Network": self.total_tokens }  # Initial tokens for the network
+
+    def add_transaction(self, sender, recipient, amount):
+        if self.token_balances.get(sender, 0) >= amount:
+            transaction = Transaction(sender, recipient, amount)
+            if self.verify_transaction(transaction):
+                self.pending_transactions.append(transaction)
+
+    def verify_transaction(self, transaction):
+        if transaction.sender == "Network":
+            return True  # Network-generated transactions are always valid
+        sender_balance = self.token_balances.get(transaction.sender, 0)
+        if sender_balance >= transaction.amount:
+            data = str(transaction.sender) + str(transaction.recipient) + str(transaction.amount) + str(transaction.timestamp)
+            calculated_signature = hashlib.sha256(data.encode()).hexdigest()
+            return calculated_signature == transaction.signature
+        return False
+
+    def mine_block(self, miner_address):
+        transactions = self.pending_transactions[:]
+        transactions.append(Transaction("Network", miner_address, 1))  # Reward for mining
+        proof = self.proof_of_work(transactions)
+        self.add_block(transactions, proof)
+        self.pending_transactions = []
+        self.update_token_balances(transactions)
+
+    def update_token_balances(self, transactions):
+        for transaction in transactions:
+            self.token_balances[transaction.sender] -= transaction.amount
+            self.token_balances[transaction.recipient] = self.token_balances.get(transaction.recipient, 0) + transaction.amount
+
+    def proof_of_work(self, transactions):
+        proof = 0
+        while not self.valid_proof(transactions, proof):
+            proof += 1
+        return proof
+
+    def valid_proof(self, transactions, proof):
+        guess = str(transactions) + str(proof)
+        guess_hash = hashlib.sha256(guess.encode()).hexdigest()
+        return guess_hash[:2] == "00"  # Simple proof of work condition
+
+# Create a blockchain and PoS instance for INRC
+total_tokens = 1000000  # Total amount of tokens
+inrc_blockchain = INRCBlockchainWithTokens(total_tokens)
+pos = ProofOfStake(inrc_blockchain)
+
+# Add validators with their stakes
+pos.add_validator("Address1", 100)
+pos.add_validator("Address2", 150)
+pos.add_validator("Address3", 200)
+
+# Add transactions and mine blocks
+inrc_blockchain.add_transaction("Address1", "Address2", 10)
+inrc_blockchain.mine_block("MinerAddress")
+
+inrc_blockchain.add_transaction("Address2", "Address3", 5)
+inrc_blockchain.mine_block("MinerAddress")
+
+# Validate blocks using PoS
+for block in inrc_blockchain.chain[1:]:
+    if pos.validate_block(block):
+        print(f"Block {block.index} is valid.")
+    else:
+        print(f"Block {block.index} is not valid.")
+
+# Print token balances
+for address, balance in inrc_blockchain.token_balances.items():
+    print(f"Address: {address}, Tokens: {balance}")
+
+# Print the blockchain
+for block in inrc_blockchain.chain:
+    print(f"Block {block.index} - Hash: {block.hash}")
